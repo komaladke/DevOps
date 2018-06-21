@@ -1,0 +1,200 @@
+{
+    "apiVersion": "v1",
+    "kind": "Template",
+    "metadata": {
+        "annotations": {
+            "description": "r-studio Template create by CI Team.",
+            "openshift.io/display-name": "R-studio IDE (CI)",
+            "openshift.io/long-description": "This template provides a R-studio IDE with service."
+        },
+        "name": "r-studio-template",
+        "namespace": "openshift"
+    },
+    "objects": [
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "name": "${DEPLOYMENT_NAME}-service",
+                "labels": {
+                    "app": "rstudio",
+                    "release": "${DEPLOYMENT_NAME}"
+                }
+            },
+            "spec": {
+                "selector": {
+                    "app": "rstudio",
+                    "release": "${DEPLOYMENT_NAME}"
+                },
+                "type": "LoadBalancer",
+                "ports": [
+                    {
+                        "name": "proxy",
+                        "port": 8787,
+                        "protocol": "TCP",
+                        "targetPort": 8787
+                    }
+                ]
+            }
+        },
+        {
+            "apiVersion": "apps/v1beta1",
+            "kind": "Deployment",
+            "metadata": {
+                "name": "${DEPLOYMENT_NAME}",
+                "labels": {
+                    "app": "rstudio",
+                    "release": "${DEPLOYMENT_NAME}"
+                }
+            },
+            "spec": {
+                "replicas": "${RSTUDIO_REPLICAS}",
+                "serviceName": "${DEPLOYMENT_NAME}-service",
+                "selector": {
+                    "matchLabels": {
+                        "app": "rstudio",
+                        "release": "${DEPLOYMENT_NAME}"
+                    }
+                },
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "app": "rstudio",
+                            "release": "${DEPLOYMENT_NAME}"
+                        }
+                    },
+                    "spec": {
+                        "volumes": [
+                            {
+                                "name": "${DEPLOYMENT_NAME}",
+                                "persistentVolumeClaim": {
+                                    "claimName": "${DEPLOYMENT_NAME}-pvc"
+                                }
+                            }
+                        ],
+                        "containers": [
+                            {
+                                "image": "rocker/rstudio",
+                                "name": "rstudio-container",
+                                "env": [
+                                    {
+                                        "name": "USER",
+                                        "value": "${USER}"
+                                    },
+                                    {
+                                        "name": "PASSWORD",
+                                        "valueFrom": {
+                                            "secretKeyRef": {
+                                                "key": "PASSWORD",
+                                                "name": "${SECRET_NAME}"
+                                            }
+                                        }
+                                    }
+                                ],
+                                "ports": [
+                                    {
+                                        "containerPort": 8787,
+                                        "name": "proxy",
+                                        "protocol": "TCP"
+                                    }
+                                ],
+                                "volumeMounts": [
+                                    {
+                                        "mountPath": "/home/${USER}",
+                                        "name": "${DEPLOYMENT_NAME}"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                }
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Route",
+            "metadata": {
+                "name": "${DEPLOYMENT_NAME}-route"
+            },
+            "spec": {
+                "host": "${DEPLOYMENT_NAME}.apps.openshift.paas-enablement.net",
+                "to": {
+                    "kind": "Service",
+                    "name": "${DEPLOYMENT_NAME}-service",
+                    "port": {
+                        "targetPort": "proxy"
+                    }
+                }
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "PersistentVolumeClaim",
+            "metadata": {
+                "name": "${DEPLOYMENT_NAME}-pvc"
+            },
+            "spec": {
+                "accessModes": [
+                    "ReadWriteOnce"
+                ],
+                "resources": {
+                    "requests": {
+                        "storage": "2Gi"
+                    }
+                }
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+                "name": "${SECRET_NAME}"
+            },
+            "stringData": {
+                "PASSWORD": "${PASSWORD}"
+            }
+        }
+    ],
+    "parameters": [
+        {
+            "name": "DEPLOYMENT_NAME",
+            "displayName": "DEPLOYMENT_NAME",
+            "description": "The deployment name you want for rstudio deployment",
+            "generate": "expression",
+            "from": "[a-zA-Z0-9]{40}",
+            "required": true
+        },
+        {
+            "name": "RSTUDIO_REPLICAS",
+            "displayName": "Rstudio Replicas",
+            "description": "The number of replicas to create for Rstudio",
+            "value": "1",
+            "required": true
+        },
+        {
+            "name": "SECRET_NAME",
+            "displayName": "SECRET_NAME",
+            "description": "The name you want for the R-studio secret",
+            "generate": "expression",
+            "from": "[a-zA-Z0-9]{40}",
+            "required": true
+        },
+        {
+            "name": "USER",
+            "displayName": "rstudio Connection Username",
+            "description": "Username for rstudio user that will be used for accessing the IDE.",
+            "generate": "expression",
+            "from": "[a-zA-Z0-9]{16}",
+            "required": true
+        },
+        {
+            "name": "PASSWORD",
+            "displayName": "rstudio Connection Password",
+            "description": "Password for the rstudio connection user.",
+            "generate": "expression",
+            "from": "[a-zA-Z0-9]{16}",
+            "required": false
+        }
+    ]
+}
+
