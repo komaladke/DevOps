@@ -1,0 +1,473 @@
+{
+   "apiVersion": "v1",
+   "kind": "Template",
+   "metadata": {
+      "annotations": {
+         "description": "An Kafka Cluster Template create by CI Team.",
+         "openshift.io/display-name": "Kafka Cluster (CI)",
+         "openshift.io/long-description": "This template provides a Kafka Cluster cluster with service."
+      },
+      "name": "kafka-cluster-template",
+      "namespace": "openshift"
+   },
+   "objects": [
+      {
+         "apiVersion": "v1",
+         "kind": "Service",
+         "metadata": {
+            "name": "${CLUSTER_NAME}-kafka",
+            "labels": {
+               "app": "kafka",
+               "release": "${CLUSTER_NAME}"
+            }
+         },
+         "spec": {
+            "selector": {
+               "app": "kafka",
+               "release": "${CLUSTER_NAME}"
+            },
+            "type": "ClusterIP",
+            "ports": [
+               {
+                  "name": "broker",
+                  "port": 9092,
+                  "protocol": "TCP",
+                  "targetPort": 9092
+               }
+            ]
+         }
+      },
+      {
+         "apiVersion": "v1",
+         "kind": "Service",
+         "metadata": {
+            "name": "${CLUSTER_NAME}-kafka-headless",
+            "labels": {
+               "app": "kafka",
+               "release": "${CLUSTER_NAME}"
+            }
+         },
+         "spec": {
+            "clusterIP": "None",
+            "type": "ClusterIP",
+            "selector": {
+               "app": "kafka",
+               "release": "${CLUSTER_NAME}"
+            },
+            "ports": [
+               {
+                  "name": "broker",
+                  "port": 9092,
+                  "protocol": "TCP",
+                  "targetPort": 9092
+               }
+            ]
+         }
+      },
+      {
+         "apiVersion": "v1",
+         "kind": "Service",
+         "metadata": {
+            "name": "${CLUSTER_NAME}-zookeeper",
+            "labels": {
+               "app": "zookeeper",
+               "release": "${CLUSTER_NAME}"
+            }
+         },
+         "spec": {
+            "type": "ClusterIP",
+            "selector": {
+               "app": "zookeeper",
+               "release": "${CLUSTER_NAME}"
+            },
+            "ports": [
+               {
+                  "name": "client",
+                  "port": 2181,
+                  "protocol": "TCP",
+                  "targetPort": 2181
+               }
+            ]
+         }
+      },
+      {
+         "apiVersion": "v1",
+         "kind": "Service",
+         "metadata": {
+            "name": "${CLUSTER_NAME}-zookeeper-headless",
+            "labels": {
+               "app": "zookeeper",
+               "release": "${CLUSTER_NAME}"
+            }
+         },
+         "spec": {
+            "clusterIP": "None",
+            "type": "ClusterIP",
+            "selector": {
+               "app": "zookeeper"
+            },
+            "ports": [
+               {
+                  "name": "server",
+                  "port": 2888,
+                  "protocol": "TCP",
+                  "targetPort": 2888
+               },
+               {
+                  "name": "leader-election",
+                  "port": 3888,
+                  "protocol": "TCP",
+                  "targetPort": 3888
+               }
+            ]
+         }
+      },
+      {
+         "apiVersion": "v1",
+         "data": {
+            "log.dirs": "/opt/kafka/data/${CLUSTER_NAME}/logs",
+            "offsets.topic.replication.factor": "${ZK_REPLICAS}",
+            "zookeeper.connect": "${CLUSTER_NAME}-zookeeper:2181"
+         },
+         "kind": "ConfigMap",
+         "metadata": {
+            "labels": {
+               "app": "kafka",
+               "release": "${CLUSTER_NAME}"
+            },
+            "name": "${CLUSTER_NAME}-kafka-configmap"
+         }
+      },
+      {
+         "apiVersion": "apps/v1beta1",
+         "kind": "StatefulSet",
+         "metadata": {
+            "name": "${CLUSTER_NAME}-kafka",
+            "labels": {
+               "app": "kafka",
+               "release": "${CLUSTER_NAME}"
+            }
+         },
+         "spec": {
+            "replicas": "${KAFKA_REPLICAS}",
+            "serviceName": "${CLUSTER_NAME}-kafka-headless",
+            "selector": {
+               "matchLabels": {
+                  "app": "kafka",
+                  "release": "${CLUSTER_NAME}"
+               }
+            },
+            "template": {
+               "metadata": {
+                  "labels": {
+                     "app": "kafka",
+                     "release": "${CLUSTER_NAME}"
+                  }
+               },
+               "spec": {
+                  "containers": [
+                     {
+                        "command": [
+                           "sh",
+                           "-exc",
+                           "export KAFKA_BROKER_ID=${HOSTNAME##*-} && \\\nexport KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://${POD_IP}:9092 && \\\n/etc/confluent/docker/run\n"
+                        ],
+                        "env": [
+                           {
+                              "name": "POD_IP",
+                              "valueFrom": {
+                                 "fieldRef": {
+                                    "apiVersion": "v1",
+                                    "fieldPath": "status.podIP"
+                                 }
+                              }
+                           },
+                           {
+                              "name": "KAFKA_ZOOKEEPER_CONNECT",
+                              "valueFrom": {
+                                 "configMapKeyRef": {
+                                    "key": "zookeeper.connect",
+                                    "name": "${CLUSTER_NAME}-kafka-configmap"
+                                 }
+                              }
+                           },
+                           {
+                              "name": "KAFKA_LOG_DIRS",
+                              "valueFrom": {
+                                 "configMapKeyRef": {
+                                    "key": "log.dirs",
+                                    "name": "${CLUSTER_NAME}-kafka-configmap"
+                                 }
+                              }
+                           },
+                           {
+                              "name": "KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR",
+                              "valueFrom": {
+                                 "configMapKeyRef": {
+                                    "key": "offsets.topic.replication.factor",
+                                    "name": "${CLUSTER_NAME}-kafka-configmap"
+                                 }
+                              }
+                           }
+                        ],
+                        "image": "confluentinc/cp-kafka:4.0.0",
+                        "name": "kafka-broker",
+                        "ports": [
+                           {
+                              "containerPort": 9092,
+                              "name": "kafka",
+                              "protocol": "TCP"
+                           }
+                        ],
+                        "volumeMounts": [
+                           {
+                              "mountPath": "/opt/kafka/data",
+                              "name": "kafka"
+                           }
+                        ]
+                     }
+                  ]
+               }
+            },
+            "volumeClaimTemplates": [
+               {
+                  "metadata": {
+                     "name": "kafka"
+                  },
+                  "spec": {
+                     "accessModes": [
+                        "ReadWriteOnce"
+                     ],
+                     "resources": {
+                        "requests": {
+                           "storage": "1Gi"
+                        }
+                     }
+                  }
+               }
+            ]
+         }
+      },
+      {
+         "apiVersion": "apps/v1beta1",
+         "kind": "StatefulSet",
+         "metadata": {
+            "labels": {
+               "app": "zookeeper",
+               "release": "${CLUSTER_NAME}"
+            },
+            "name": "${CLUSTER_NAME}-zookeeper"
+         },
+         "spec": {
+            "replicas": "${ZK_REPLICAS}",
+            "selector": {
+               "matchLabels": {
+                  "app": "zookeeper",
+                  "release": "${CLUSTER_NAME}"
+               }
+            },
+            "serviceName": "${CLUSTER_NAME}-zookeeper-headless",
+            "template": {
+               "metadata": {
+                  "labels": {
+                     "app": "zookeeper",
+                     "release": "${CLUSTER_NAME}"
+                  }
+               },
+               "spec": {
+                  "containers": [
+                     {
+                        "command": [
+                           "sh",
+                           "-c",
+                           "zkGenConfig.sh && exec zkServer.sh start-foreground"
+                        ],
+                        "env": [
+                           {
+                              "name": "ZK_REPLICAS",
+                              "value": "${ZK_REPLICAS}"
+                           },
+                           {
+                              "name": "ZK_HEAP_SIZE",
+                              "value": "${ZK_HEAP_SIZE}"
+                           },
+                           {
+                              "name": "ZK_TICK_TIME",
+                              "value": "${ZK_TICK_TIME}"
+                           },
+                           {
+                              "name": "ZK_INIT_LIMIT",
+                              "value": "${ZK_INIT_LIMIT}"
+                           },
+                           {
+                              "name": "ZK_SYNC_LIMIT",
+                              "value": "${ZK_SYNC_LIMIT}"
+                           },
+                           {
+                              "name": "ZK_MAX_CLIENT_CNXNS",
+                              "value": "${ZK_MAX_CLIENT_CNXNS}"
+                           },
+                           {
+                              "name": "ZK_SNAP_RETAIN_COUNT",
+                              "value": "${ZK_SNAP_RETAIN_COUNT}"
+                           },
+                           {
+                              "name": "ZK_PURGE_INTERVAL",
+                              "value": "${ZK_PURGE_INTERVAL}"
+                           },
+                           {
+                              "name": "ZK_LOG_LEVEL",
+                              "value": "${ZK_LOG_LEVEL}"
+                           },
+                           {
+                              "name": "ZK_CLIENT_PORT",
+                              "value": "${ZK_CLIENT_PORT}"
+                           },
+                           {
+                              "name": "ZK_SERVER_PORT",
+                              "value": "${ZK_SERVER_PORT}"
+                           },
+                           {
+                              "name": "ZK_ELECTION_PORT",
+                              "value": "${ZK_ELECTION_PORT}"
+                           }
+                        ],
+                        "image": "gcr.io/google_samples/k8szk:v2",
+                        "name": "zookeeper-server",
+                        "ports": [
+                           {
+                              "containerPort": 2181,
+                              "name": "client",
+                              "protocol": "TCP"
+                           },
+                           {
+                              "containerPort": 2888,
+                              "name": "server",
+                              "protocol": "TCP"
+                           },
+                           {
+                              "containerPort": 3888,
+                              "name": "leader-election",
+                              "protocol": "TCP"
+                           }
+                        ],
+                        "volumeMounts": [
+                           {
+                              "mountPath": "/var/lib/zookeeper",
+                              "name": "zookeeper"
+                           }
+                        ]
+                     }
+                  ]
+               }
+            },
+            "volumeClaimTemplates": [
+               {
+                  "metadata": {
+                     "name": "zookeeper"
+                  },
+                  "spec": {
+                     "accessModes": [
+                        "ReadWriteOnce"
+                     ],
+                     "resources": {
+                        "requests": {
+                           "storage": "2Gi"
+                        }
+                     }
+                  }
+               }
+            ]
+         }
+      }
+   ],
+   "parameters": [
+      {
+         "description": "The cluster name you want for the kafka cluster.",
+         "displayName": "CLUSTER_NAME",
+         "name": "CLUSTER_NAME",
+         "required": true,
+         "value": "kafka-cluster"
+      },
+      {
+         "description": "The number of replicas to create for Kafka.",
+         "displayName": "Kafka Replicas",
+         "name": "KAFKA_REPLICAS",
+         "required": true,
+         "value": "3"
+      },
+      {
+         "description": "The number of replicas to create for Zookeeper.",
+         "displayName": "Zookeeper Replicas",
+         "name": "ZK_REPLICAS",
+         "required": true,
+         "value": "3"
+      },
+      {
+         "displayName": "ZK_HEAP_SIZE",
+         "name": "ZK_HEAP_SIZE",
+         "required": true,
+         "value": "1G"
+      },
+      {
+         "displayName": "ZK_TICK_TIME",
+         "name": "ZK_TICK_TIME",
+         "required": true,
+         "value": "2000"
+      },
+      {
+         "displayName": "ZK_INIT_LIMIT",
+         "name": "ZK_INIT_LIMIT",
+         "required": true,
+         "value": "10"
+      },
+      {
+         "displayName": "ZK_SYNC_LIMIT",
+         "name": "ZK_SYNC_LIMIT",
+         "required": true,
+         "value": "5"
+      },
+      {
+         "displayName": "ZK_MAX_CLIENT_CNXNS",
+         "name": "ZK_MAX_CLIENT_CNXNS",
+         "required": true,
+         "value": "60"
+      },
+      {
+         "displayName": "ZK_SNAP_RETAIN_COUNT",
+         "name": "ZK_SNAP_RETAIN_COUNT",
+         "required": true,
+         "value": "3"
+      },
+      {
+         "displayName": "ZK_PURGE_INTERVAL",
+         "name": "ZK_PURGE_INTERVAL",
+         "required": true,
+         "value": "1"
+      },
+      {
+         "displayName": "ZK_LOG_LEVEL",
+         "name": "ZK_LOG_LEVEL",
+         "required": true,
+         "value": "INFO"
+      },
+      {
+         "displayName": "ZK_CLIENT_PORT",
+         "name": "ZK_CLIENT_PORT",
+         "required": true,
+         "value": "2181"
+      },
+      {
+         "displayName": "ZK_SERVER_PORT",
+         "name": "ZK_SERVER_PORT",
+         "required": true,
+         "value": "2888"
+      },
+      {
+         "displayName": "ZK_ELECTION_PORT",
+         "name": "ZK_ELECTION_PORT",
+         "required": true,
+         "value": "3888"
+      }
+   ]
+}
